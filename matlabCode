@@ -1,0 +1,109 @@
+%Convert to gray and enhancement
+clear
+dir = dir('C:\Users\aspartan\Downloads\Regression\Beads\Beads Images 1-10V\8v\*.jpg');
+sd = size(dir);
+s = sd(1,1);
+kk = 1;
+while(kk<=200)
+BWnobord = imread(['C:\Users\aspartan\Downloads\Regression\Beads\Beads Images 1-10V\8v\',dir(kk).name]);
+I = im2gray(imread(['C:\Users\aspartan\Downloads\Regression\Beads\Beads Images 1-10V\8v\',dir(kk).name]));
+[~,threshold] = edge(I,'sobel');fudgeFactor = 0.5;
+BWs = edge(I,'sobel',threshold * fudgeFactor);
+% Create two perpindicular linear structuring elements by using strel function.
+se90 = strel('line',3,90);
+se0 = strel('line',3,0);
+se1 = strel('disk',1,4);
+% Dilate the binary gradient mask using the vertical structuring element followed by the horizontal structuring element. The imdilate function dilates the image.
+BWsdil = imdilate(BWs,[se90 se0]);
+BWsdil = imopen(BWsdil,se1);
+% To fill these holes, use the imfill function.
+BWdfill = imfill(BWsdil,'holes');
+% Any objects that are connected to the border of the image can be removed using the imclearborder function
+BWnobord = imclearborder(BWdfill,1);
+BWnobord = imclose(BWnobord,se1);
+BWnobord(:,:,3) = BWnobord;
+% write image to file
+mkdir('C:\Users\aspartan\Downloads\Regression\Beads\Beads Images 1-10V\8v\temp');
+cd('C:\Users\aspartan\Downloads\Regression\Beads\Beads Images 1-10V\8v\temp');
+filename = sprintf('%s_%d.%s','sample',kk,'jpg');
+imwrite(BWnobord,filename);
+kk=kk+1;
+end
+
+%Load a pre-trained, dleep, convolutional network
+net = mobilenetv2;
+layers = net.Layers
+%%Setup our training data
+%Training dataset
+%%Data Augmentation - Use an augmented image datastore to automatically resize the training images
+inputSize = net.Layers(1).InputSize;
+pixelRange = [-30 30];
+imageAugmenter = imageDataAugmenter( ...
+'RandXReflection',true, ...
+'RandXTranslation',pixelRange, ...
+'RandYTranslation',pixelRange);
+augtrainingImages = augmentedImageDatastore(inputSize(1:2),TrainTable, ...
+'DataAugmentation',imageAugmenter);
+%%Data Augmentation - Use an augmented image datastore to automatically resize the test images
+inputSize = net.Layers(1).InputSize;
+pixelRange = [-30 30];
+imageAugmenter = imageDataAugmenter( ...
+'RandXReflection',true, ...
+'RandXTranslation',pixelRange, ...
+'RandYTranslation',pixelRange);
+augtestImages = augmentedImageDatastore(inputSize(1:2),TestTable, ...
+'DataAugmentation',imageAugmenter);
+%%Testing Data Augmentation - to automatically resize the validation/testing images without performing further data augmentation 
+%augtestImages = augtestImages;
+%Analyse the created network
+%analyzeNetwork(alex)
+layersTransfer = net.Layers(1:end-3);
+%numClasses = numel(categories(trainingImages.Labels))
+numClasses=1;
+layers = [
+layersTransfer
+fullyConnectedLayer(numClasses,'WeightLearnRateFactor',20,'BiasLearnRateFactor',20)
+regressionLayer];
+%Set the network options
+opts = trainingOptions('sgdm', ...
+'MiniBatchSize',10, ...
+'MaxEpochs',100, ...
+'InitialLearnRate',1e-4,...
+'ValidationData', augtestImages,...
+'ValidationFrequency',30,...
+'ExecutionEnvironment','cpu',...
+'Plots','training-progress');
+%Train the Network
+myNet = trainNetwork(augtrainingImages,lgraph_2,opts);
+%% Measure Network Accuracy
+YPredicted = predict(myNet,augtestImages);
+%%Evaluate Performance
+predictionError = TestTable.Labels1(:,1)- YPredicted;
+threshold = 0.5;
+numCorrect = sum(abs(predictionError) < threshold);
+numValidationImages = numel(TestTable.Labels1(:,1));
+accuracy = numCorrect/numValidationImages
+squares = predictionError.^2;
+mse = mean(squares)
+rmse = sqrt(mean(squares))
+mae = mean(abs(predictionError))
+mre = mean(abs(predictionError)./TestTable.Labels1(:,1))
+mape = mean((abs(predictionError)./TestTable.Labels1(:,1))*100)
+%%Visualize Predictions
+figure
+scatter(YPredicted,TestTable.Labels1(:,1),'+')
+xlabel("Predicted Value (v)",'FontWeight','bold')
+ylabel("True Value (v)",'FontWeight','bold')
+%plot the linear regression model.
+hold on
+[p,S]=polyfit(YPredicted, TestTable.Labels1(:,1), 1);
+[y_fit,delta] = polyval(p,TestTable.Labels1(:,1),S);
+plot(TestTable.Labels1(:,1),y_fit,'r-')
+mdl = fitlm(YPredicted, TestTable.Labels1(:,1))
+
+
+
+
+
+
+
